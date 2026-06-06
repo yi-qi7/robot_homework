@@ -27,7 +27,7 @@ source ./devel/setup.bash
 export TURTLEBOT3_MODEL=waffle
 ```
 
-可选型号：`burger`、`waffle`、`waffle_pi`。若使用 `burger`，需在 `planner.py` 中将 `robot_radius` 改为 `0.105`。
+可选型号：`burger`、`waffle`、`waffle_pi`。若使用 `burger`，需在 `planner.py` 中将 `robot_radius` 改为 `0.105`。(需调参)
 
 ### 3. 启动仿真环境
 
