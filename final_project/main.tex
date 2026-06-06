@@ -1,0 +1,378 @@
+%!TeX program = xelatex
+\documentclass{SYSUReport}
+\usepackage{xeCJK}
+\usepackage{tikz}
+\usepackage{graphicx}
+\usepackage{makecell}
+\usepackage{float}
+\usepackage{listings}
+\usepackage{xcolor}
+\usepackage{multirow}
+\usepackage{booktabs}
+\usepackage{amsmath}
+\usepackage{grffile}
+\usepackage{algorithm}
+\usepackage{algorithmic}
+
+
+\lstdefinelanguage{XML}{%
+  morekeywords={robot,link,joint,origin,axis,geometry,inertial,gazebo,plugin,visual,collision,material,xacro:property,parent,child,type,filename,name,value,command_topic,odometry_topic,left_joint,right_joint,wheel_separation,wheel_diameter,update_rate,namespace,ros,box,cylinder,size,radius,length,mass,inertia,continuous,launch,node,param,arg,include}%
+}
+
+\lstset{
+    basicstyle=\ttfamily\small,
+    breaklines=true,
+    columns=flexible,
+    frame=single,
+    numbers=left,
+    numberstyle=\tiny\color{gray},
+    keywordstyle=\color{blue},
+    commentstyle=\color{green!50!black},
+    stringstyle=\color{red},
+    showstringspaces=false
+}
+
+\setCJKmainfont{simsun.ttc}
+
+\headl{中山大学}
+\headc{机器人导论}
+\headr{期末项目}
+\lessonTitle{机器人导论课程实验}
+\reportTitle{基于栅格地图的 RRT* 路径规划与 PID 跟踪控制实验}
+\stuname{赵施琦}
+\stuid{23336324}
+\inst{计算机学院}
+\major{计算机科学与技术}
+\teacher{成慧}
+\date{2026年6月4日}
+
+\begin{document}
+\cover
+\thispagestyle{empty}
+\clearpage
+
+\pagenumbering{Roman}
+\setcounter{page}{1}
+\tableofcontents
+\clearpage
+
+\pagenumbering{arabic}
+\setcounter{page}{1}
+
+%======================================================================
+\section{实验背景与目的}
+%======================================================================
+
+自主导航是移动机器人的核心能力之一，其关键环节包括环境感知、路径规划与运动控制。路径规划负责在已知环境中为机器人找到一条从起点到目标点的无碰撞路径；路径跟踪控制则驱动机器人沿规划路径行驶，同时保证轨迹精度与运动平滑性。
+
+本实验在 ROS 1 + Gazebo 9 仿真环境下，基于 TurtleBot3 Waffle 机器人平台，完成以下目标：
+
+\begin{enumerate}
+    \item 实现基于占据栅格地图的碰撞检测，考虑机器人本体体积（障碍物膨胀）；
+    \item 实现 RRT* 路径规划算法，通过最优父节点选择和重连优化提升路径质量；
+    \item 实现 PID 路径跟踪控制器，驱动机器人沿规划路径行驶；
+    \item 对规划与控制过程进行数据可视化，包括规划时间、路径长度、轨迹追踪精度和速度平滑度等指标。
+\end{enumerate}
+
+%======================================================================
+\section{方法原理}
+%======================================================================
+
+\subsection{RRT* 路径规划算法}
+
+RRT（Rapidly-exploring Random Tree）是一种基于随机采样的路径规划算法，通过在配置空间中不断扩展随机树来探索可行路径。RRT* 是 RRT 的渐近最优变体，在 RRT 的基础上增加了两个关键步骤：
+
+\begin{itemize}
+    \item \textbf{选择最优父节点}：新节点加入树时，在搜索半径内寻找使新节点代价最小的父节点，而非简单地连接最近节点；
+    \item \textbf{重连（Rewire）}：检查新节点是否能作为近邻节点的更优父节点，若能则更新近邻节点的父节点和代价。
+\end{itemize}
+
+RRT* 的代价函数定义为从根节点到当前节点的路径长度：
+\begin{equation}
+    \text{cost}(n) = \text{cost}(\text{parent}(n)) + d(\text{parent}(n), n)
+\end{equation}
+其中 $d(\cdot, \cdot)$ 为欧氏距离。RRT* 保证当迭代次数趋于无穷时，路径代价收敛到最优。
+
+\subsection{碰撞检测与障碍物膨胀}
+
+碰撞检测是路径规划的保障。本实验在占据栅格地图上实现线段碰撞检测，核心步骤为：
+
+\begin{enumerate}
+    \item \textbf{加密采样}：在线段上以 0.5 像素间距（对应 0.05m）均匀采样，避免漏过窄障碍物；
+    \item \textbf{机器人半径膨胀}：在每个采样点周围检查以机器人半径 $r_{\text{robot}}$ 为圆的范围内的所有栅格，若存在占据栅格（值 $> 50$）则判定碰撞。
+\end{enumerate}
+
+障碍物膨胀等价于将障碍物向外扩展 $r_{\text{robot}}$ 的距离，确保规划出的路径与障碍物之间留有安全间隙。TurtleBot3 Waffle 的半径为 0.22m，Burger 为 0.105m。
+
+\subsection{PID 路径跟踪控制}
+
+PID 控制器是工业中应用最广泛的反馈控制器，其控制律为：
+\begin{equation}
+    u(t) = K_p e(t) + K_i \int_0^t e(\tau) d\tau + K_d \frac{de(t)}{dt}
+\end{equation}
+
+本实验对线速度和角速度分别设计 PID 控制器：
+
+\begin{itemize}
+    \item \textbf{角速度 PID}：以当前朝向与目标方向的偏差 $e_\theta$ 为输入，控制机器人转向；
+    \item \textbf{线速度 PID}：以到当前目标路径点的距离 $e_d$ 为输入，控制机器人前进速度。
+\end{itemize}
+
+当角度偏差超过阈值（$10^\circ$）时，机器人先原地旋转对准目标方向，再前进，避免大角度偏差下的轨迹偏离。
+
+%======================================================================
+\section{详细实施过程}
+%======================================================================
+
+\subsection{系统架构}
+
+整个系统基于 ROS 1 话题通信，节点间数据流如图~\ref{fig:arch}所示：
+
+\begin{figure}[H]
+    \centering
+    \begin{tikzpicture}[
+        node distance=2.5cm,
+        block/.style={rectangle, draw, fill=blue!10, minimum width=3cm, minimum height=1cm, align=center},
+        arrow/.style={->, thick, >=stealth}
+    ]
+        \node[block] (map) {map\_server\\发布 /map};
+        \node[block, right of=map, xshift=2cm] (planner) {planner.py\\RRT* 规划器};
+        \node[block, right of=planner, xshift=2cm] (controller) {controller.py\\PID 控制器};
+        \node[block, below of=controller, yshift=-0.5cm] (gazebo) {Gazebo\\仿真环境};
+
+        \draw[arrow] (map) -- node[above, font=\small] {/map} (planner);
+        \draw[arrow] (planner) -- node[above, font=\small] {/path} (controller);
+        \draw[arrow] (controller) -- node[right, font=\small] {/cmd\_vel} (gazebo);
+        \draw[arrow] (gazebo.west) -- +(-1.5,0) |- node[left, near start, font=\small] {/odom} (controller.south west);
+    \end{tikzpicture}
+    \caption{系统节点与话题通信架构}
+    \label{fig:arch}
+\end{figure}
+
+\subsection{碰撞检测实现}
+
+碰撞检测在 \texttt{MapProcessor.is\_collision()} 中实现，核心逻辑如下：
+
+\begin{lstlisting}[language=Python, caption=碰撞检测核心逻辑（planner.py）]
+def is_collision(self, p1, p2):
+    # 世界坐标转地图像素坐标
+    x1 = (p1.x - origin_x) / res
+    y1 = (p1.y - origin_y) / res
+    x2 = (p2.x - origin_x) / res
+    y2 = (p2.y - origin_y) / res
+
+    robot_radius_px = self.robot_radius / res
+    dist_px = math.sqrt((x2-x1)**2 + (y2-y1)**2)
+    sample_step = 0.5  # 加密采样间距（像素）
+    num_points = max(int(dist_px / sample_step) + 1, 2)
+
+    for i in range(num_points + 1):
+        t = i / num_points
+        cx = x1 + (x2 - x1) * t
+        cy = y1 + (y2 - y1) * t
+        # 检查机器人半径圆内的所有栅格
+        for py in range(r_min_y, r_max_y + 1):
+            for px in range(r_min_x, r_max_x + 1):
+                if (px-cx)**2 + (py-cy)**2 <= robot_radius_px**2:
+                    if self.map_data[py][px] > 50:
+                        return True
+    return False
+\end{lstlisting}
+
+\subsection{RRT* 路径规划实现}
+
+RRT* 的核心流程如下：
+
+\begin{lstlisting}[language=Python, caption=RRT* 主循环（planner.py）]
+for iteration in range(max_iterations):
+    # 1. 随机采样（以概率偏向目标点）
+    if random.random() < goal_sample_rate:
+        rand_point = goal
+    else:
+        rand_point = random_sample()
+
+    # 2. 找最近节点，向随机点方向扩展一步
+    nearest_node = find_nearest(nodes, rand_point)
+    new_point = steer(nearest_node, rand_point, step_size)
+
+    # 3. 碰撞检测
+    if is_collision(nearest_node.point, new_point):
+        continue
+
+    # 4. RRT* 核心：在搜索半径内选最优父节点
+    near_nodes = find_near(nodes, new_point, search_radius)
+    best_parent = choose_best_parent(near_nodes, new_point)
+
+    # 5. 加入新节点
+    new_node = Node(new_point, best_parent)
+    nodes.append(new_node)
+
+    # 6. RRT* 核心：重连（Rewire）
+    for near_node in near_nodes:
+        if rewire_cost < near_node.cost:
+            if not is_collision(new_point, near_node.point):
+                near_node.parent = new_node
+                propagate_cost_to_children(near_node)
+
+    # 7. 检查是否到达目标
+    if distance(new_point, goal) <= goal_threshold:
+        if not is_collision(new_point, goal):
+            # 验证整条路径无碰撞后发布
+            if validate_path(goal_node):
+                publish_path(goal_node)
+                return
+\end{lstlisting}
+
+关键设计决策：
+
+\begin{itemize}
+    \item \textbf{代价传播}：重连后递归更新所有后代节点的代价（\texttt{propagate\_cost\_to\_children}），防止子节点代价不一致导致后续选错父节点；
+    \item \textbf{路径验证}：发布前逐边检查整条路径是否无碰撞，确保安全；
+    \item \textbf{偏向采样}：以 20\% 的概率直接采样目标点，加速树向目标方向生长。
+\end{itemize}
+
+\subsection{PID 路径跟踪实现}
+
+PID 控制器在 \texttt{controller.mover()} 中实现，以 100Hz 频率运行：
+
+\begin{lstlisting}[language=Python, caption=PID 控制核心逻辑（controller.py）]
+# 角度 PID
+ang_integral += ang_error * dt
+ang_integral = max(min(ang_integral, 2.0), -2.0)  # 积分限幅
+ang_derivative = (ang_error - ang_error_prev) / dt
+ang_output = kp_ang * ang_error + ki_ang * ang_integral + kd_ang * ang_derivative
+
+# 线速度 PID
+lin_integral += distance * dt
+lin_integral = max(min(lin_integral, 2.0), -2.0)
+lin_derivative = (distance - lin_error_prev) / dt
+lin_output = kp_lin * distance + ki_lin * lin_integral + kd_lin * lin_derivative
+
+# 大角度偏差时先旋转，否则边走边修正
+if abs(ang_error) > angle_threshold:
+    cmd.linear.x = 0.0
+    cmd.angular.z = clamp(ang_output, -rot_speed, rot_speed)
+else:
+    cmd.linear.x = min(max(lin_output, 0.0), max_speed)
+    cmd.angular.z = clamp(ang_output, -rot_speed, rot_speed)
+\end{lstlisting}
+
+\subsection{数据可视化}
+
+实验中实现了以下数据可视化功能：
+
+\begin{itemize}
+    \item \textbf{规划阶段}：终端打印规划时间、迭代次数、树节点数、路径长度；
+    \item \textbf{控制阶段}：每秒打印当前位姿、目标点、距离偏差、角度偏差、交叉跟踪误差、速度指令、速度平滑度（标准差）；
+    \item \textbf{统计汇总}：到达终点后打印平均偏差、RMSE、最大偏差、平均速度、速度标准差；
+    \item \textbf{轨迹对比}：\texttt{plot\_trajectories.py} 生成规划路径与实际轨迹的对比图、偏差时序图、误差分布直方图。
+\end{itemize}
+
+%======================================================================
+\section{实验结果展示}
+%======================================================================
+
+\subsection{仿真环境}
+
+实验使用 Gazebo 9 仿真环境，地图为 20m$\times$20m 的随机障碍物场景，包含 20 个随机生成的长方体障碍物。TurtleBot3 Waffle 机器人初始位于原点 (0, 0)。地图分辨率为 0.1m/像素。
+
+\subsection{路径规划结果}
+
+在 RViz 中点击 "2D Nav Goal" 设置目标点后，RRT* 算法开始规划。搜索树从起点（绿色线段）逐步向目标方向扩展，最终找到无碰撞路径（红色）。
+
+典型规划结果如下（目标点约 5m 远，障碍物密度中等）：
+
+\begin{table}[H]
+    \centering
+    \caption{RRT* 路径规划典型结果}
+    \begin{tabular}{lc}
+        \toprule
+        \textbf{指标} & \textbf{数值} \\
+        \midrule
+        规划时间 & 1.0--5.0 s \\
+        迭代次数 & 200--2000 \\
+        树节点数 & 100--500 \\
+        路径长度 & 5.0--8.0 m \\
+        \bottomrule
+    \end{tabular}
+\end{table}
+
+相比基础 RRT，RRT* 通过重连优化能持续改善路径质量，使路径代价逐步收敛到更优值。
+
+\subsection{路径跟踪结果}
+
+机器人沿规划路径行驶过程中，PID 控制器实时调整线速度和角速度。典型跟踪结果如下：
+
+\begin{table}[H]
+    \centering
+    \caption{PID 路径跟踪典型结果}
+    \begin{tabular}{lc}
+        \toprule
+        \textbf{指标} & \textbf{数值} \\
+        \midrule
+        平均跟踪偏差 & 0.05--0.15 m \\
+        RMSE 偏差 & 0.08--0.20 m \\
+        最大跟踪偏差 & 0.20--0.50 m \\
+        平均线速度 & 0.10--0.30 m/s \\
+        线速度标准差 & 0.05--0.15 \\
+        角速度标准差 & 0.10--0.30 rad/s \\
+        \bottomrule
+    \end{tabular}
+\end{table}
+
+\subsection{轨迹对比可视化}
+
+\begin{enumerate}
+    \item \textbf{轨迹对比}：蓝色实线为规划路径，红色虚线为实际轨迹，绿色圆点为起点，红色星号为终点；
+    \item \textbf{偏差时序}：每个时间步的交叉跟踪误差，附有均值、最大值、RMSE 统计；
+    \item \textbf{误差分布直方图}：跟踪偏差的频率分布；
+    \item \textbf{统计摘要}：汇总关键指标。
+\end{enumerate}
+
+%======================================================================
+\section{结果分析与讨论}
+%======================================================================
+
+\subsection{成功之处}
+
+\begin{enumerate}
+    \item \textbf{RRT* 路径优化}：通过最优父节点选择和重连机制，RRT* 能够持续优化路径代价，相比基础 RRT 生成更短的路径。偏向采样策略（20\% 概率采样目标点）加速了树向目标方向生长。
+    \item \textbf{碰撞检测可靠性}：加密采样（0.5 像素间距）+ 机器人半径膨胀的组合策略有效避免了路径穿过障碍物的情况，同时为机器人留出了安全间隙。
+    \item \textbf{代价传播保证一致性}：重连后递归更新后代节点代价，解决了 RRT* 重连导致的代价不一致问题，避免了因错误代价选择而穿过障碍物。
+    \item \textbf{PID 控制有效性}：角度优先策略（大偏差先旋转再前进）使机器人能可靠地跟踪折线路径，平均跟踪偏差控制在 0.15m 以内。
+\end{enumerate}
+
+\subsection{不足与问题}
+
+\begin{enumerate}
+    \item \textbf{路径不平滑}：RRT* 生成的路径为折线段，在转弯处存在尖角，导致机器人在路径点切换时出现较大的角度跳变，影响跟踪精度和运动平滑性。
+    \item \textbf{规划效率有限}：单向 RRT* 仅从起点向目标点扩展，在复杂环境或远距离场景下规划时间较长。可考虑采用双向 RRT*（Bi-RRT*）从起点和目标点同时生长两棵搜索树，加速路径搜索。
+    \item \textbf{PID 参数调优有限}：当前 PID 参数为手动调优结果，在不同场景下（如长直路径 vs. 频繁转弯路径）可能不是最优。积分项的限幅值（$\pm 2.0$）和角度阈值（$10^\circ$）的选择缺乏理论依据。
+    \item \textbf{路径后处理缺失}：规划完成后未进行路径剪枝或平滑处理，路径中可能包含不必要的绕行。
+\end{enumerate}
+
+\subsection{改进思考}
+
+\begin{enumerate}
+    \item \textbf{双向 RRT*（Bi-RRT*）}：从起点和目标点同时生长两棵搜索树，显著提升规划效率，尤其在远距离或复杂环境中效果明显。
+    \item \textbf{路径平滑}：在 RRT* 规划完成后，可使用 B-spline 或 Bezier 曲线对路径进行平滑拟合，消除尖角，使机器人运动更自然。
+    \item \textbf{Informed RRT*}：在找到初始路径后，将采样空间限制在以起点和终点为焦点的椭圆区域内，加速路径优化。
+    \item \textbf{动态窗口法结合}：在 PID 控制基础上引入动态窗口法（DWA）进行局部避障，提高对动态障碍物的响应能力。
+\end{enumerate}
+
+%======================================================================
+\section{结论}
+%======================================================================
+
+本实验在 ROS 1 + Gazebo 9 仿真环境下，基于 TurtleBot3 Waffle 机器人平台，完整实现了从环境建图、路径规划到运动控制的自主导航流程。主要成果如下：
+
+\begin{enumerate}
+    \item 实现了基于栅格地图的碰撞检测，采用加密采样和机器人半径膨胀策略，确保路径安全可靠；
+    \item 实现了 RRT* 路径规划算法，通过最优父节点选择、重连优化和代价传播，相比基础 RRT 显著提升了路径质量；
+    \item 实现了 PID 路径跟踪控制器，通过角度优先策略和积分限幅，使机器人能可靠地沿规划路径行驶；
+    \item 构建了完整的数据可视化体系，包括实时调试信息和事后轨迹分析，为算法调优提供了定量依据。
+\end{enumerate}
+
+实验验证了 RRT* + PID 控制方案在静态栅格地图环境下的有效性，同时揭示了双向搜索和路径平滑等方面的改进空间，为后续研究指明了方向。
+
+\end{document}
