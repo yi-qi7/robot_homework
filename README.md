@@ -16,6 +16,10 @@
 ### 1. 编译工作空间
 
 ```bash
+# src/CMakeLists.txt内容有问题的话
+# 先进入 src/
+# 执行 catkin_init_workspace
+
 cd final_project
 catkin_make
 source ./devel/setup.bash
@@ -27,7 +31,7 @@ source ./devel/setup.bash
 export TURTLEBOT3_MODEL=waffle
 ```
 
-可选型号：`burger`、`waffle`、`waffle_pi`。若使用 `burger`，需在 `planner.py` 中将 `robot_radius` 改为 `0.105`。
+可选型号：`burger`、`waffle`、`waffle_pi`。若使用 `burger`，需在 `planner.py` 中将 `robot_radius` 改为 `0.105`。(需调参)
 
 ### 3. 启动仿真环境
 
