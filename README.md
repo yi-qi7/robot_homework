@@ -64,7 +64,7 @@ roslaunch turtle obs_world.launch
 - 行驶过程中终端会实时输出 PID 调试信息（轨迹偏差、速度平滑度等）
 - 到达终点后终端会输出轨迹追踪精度和速度平滑度统计
 
-[演示视频](演示视频.mp4)
+[演示视频](https://raw.githubusercontent.com/yi-qi7/robot_homework/main/演示视频.mp4)
 
 ### 6. 路径可视化（可选）
 
