@@ -66,6 +66,13 @@ roslaunch turtle obs_world.launch
 
 [演示视频](https://raw.githubusercontent.com/yi-qi7/robot_homework/main/运行示例.mp4)
 
+<a href="运行示例.mp4">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="https://img.shields.io/badge/-%F0%9F%93%BD%20%E6%92%AD%E6%94%BE%20%E8%A7%86%E9%A2%91-8b949e?style=flat&logo=github&logoColor=white">
+    <img alt="播放演示视频" src="https://img.shields.io/badge/%F0%9F%93%BD%20%E6%92%AD%E6%94%BE%20%E8%A7%86%E9%A2%91-238636?style=for-the-badge&logo=github&logoColor=white">
+  </picture>
+</a>
+
 ### 6. 路径可视化（可选）
 
 运行结束后可使用 `plot_trajectories.py` 对比规划路径与实际轨迹：
